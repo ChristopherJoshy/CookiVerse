@@ -51,9 +51,15 @@ Theme: Recipe Sharing Website
 git clone https://github.com/ChristopherJoshy/CookiVerse
 ```
 
-2. type npm i  adnd  npm start
+2. type
+   ```bash
+   npm i
+   ```
+   adnd
+   ```
+   npm start
 
-3. Start exploring and cooking! 🍳
+4. Start exploring and cooking! 🍳
 
 ## 🔥 Features in Detail
 
