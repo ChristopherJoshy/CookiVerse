@@ -33,7 +33,7 @@ CookiVerse is a revolutionary recipe sharing platform that combines the power of
 
 ## 🎯 Project Demo
 
-[Live Demo](https://cookiverse-1cb11.web.app/)
+[Live Demo](https://cookiverse.onrender.com/)
 
 ## 🏆 Hackathon Details
 
