@@ -33,7 +33,7 @@ CookiVerse is a revolutionary recipe sharing platform that combines the power of
 
 ## 🎯 Project Demo
 
-[Live Demo](https://your-github-username.github.io/CookiVerse)
+[Live Demo](https://cookiverse-1cb11.web.app/)
 
 ## 🏆 Hackathon Details
 
@@ -48,10 +48,10 @@ Theme: Recipe Sharing Website
 
 1. Clone the repository
 ```bash
-git clone https://github.com/your-username/CookiVerse.git
+git clone https://github.com/ChristopherJoshy/CookiVerse
 ```
 
-2. Open `index.html` in your browser or use a local server
+2. type npm i  adnd  npm start
 
 3. Start exploring and cooking! 🍳
 
@@ -74,7 +74,7 @@ git clone https://github.com/your-username/CookiVerse.git
 
 ## 👨‍💻 Solo Developer
 
-This project was developed by [Your Name] as a solo participant in the Web-a-Win hackathon.
+This project was developed by Christopher Joshy as a solo participant in the Web-a-Win hackathon.
 
 ## 📝 License
 
