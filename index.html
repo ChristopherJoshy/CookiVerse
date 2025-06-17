@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CookiVerse - Recipe Sharing Platform</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div class="login-screen" id="loginScreen">
+        <div class="login-container">
+            <div class="login-header" data-aos="fade-down">
+                <div class="logo-large">
+                    <i class="fas fa-cookie-bite"></i>
+                    <h1>CookiVerse</h1>
+                </div>
+                <p class="tagline">Your LinkedIn for Recipes</p>
+                <p class="description">Share, discover, and create amazing recipes with AI-powered suggestions</p>
+            </div>
+            
+            <div class="login-card" data-aos="zoom-in" data-aos-delay="200">
+                <h2>Welcome to CookiVerse</h2>
+                <p>Sign in to start sharing and discovering amazing recipes</p>
+                
+                <div class="features-preview">
+                    <div class="feature" data-aos="fade-up" data-aos-delay="300">
+                        <i class="fas fa-magic"></i>
+                        <span>AI Recipe Generation</span>
+                    </div>
+                    <div class="feature" data-aos="fade-up" data-aos-delay="400">
+                        <i class="fas fa-users"></i>
+                        <span>Recipe Community</span>
+                    </div>
+                    <div class="feature" data-aos="fade-up" data-aos-delay="500">
+                        <i class="fas fa-bookmark"></i>
+                        <span>Save Favorites</span>
+                    </div>
+                    <div class="feature" data-aos="fade-up" data-aos-delay="600">
+                        <i class="fas fa-calendar"></i>
+                        <span>Meal Planning</span>
+                    </div>
+                </div>
+                
+                <button id="loginScreenBtn" class="login-screen-btn" data-aos="fade-up" data-aos-delay="700">
+                    <i class="fab fa-google"></i>
+                    Continue with Google
+                </button>
+                
+                <p class="terms">By continuing, you agree to our Terms of Service and Privacy Policy</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App Container -->
+    <div class="app-container" id="appContainer" style="display: none;">
+        <!-- Navigation Header -->
+        <header class="navbar">
+            <div class="nav-container">
+                <div class="nav-left">
+                    <div class="logo">
+                        <i class="fas fa-cookie-bite"></i>
+                        <span>CookiVerse</span>
+                    </div>
+                    <div class="search-bar">
+                        <i class="fas fa-search"></i>
+                        <input type="text" placeholder="Search recipes..." id="searchInput">
+                    </div>
+                </div>
+                <div class="nav-right">
+                    <div class="nav-icons">
+                        <button class="nav-icon" id="homeBtn" title="Home">
+                            <i class="fas fa-home"></i>
+                        </button>
+                        <button class="nav-icon" id="bookmarksBtn" title="Saved Recipes">
+                            <i class="fas fa-bookmark"></i>
+                        </button>
+                        <button class="nav-icon" id="mealPlanBtn" title="Meal Planner">
+                            <i class="fas fa-calendar-alt"></i>
+                        </button>
+                    </div>
+                    <div class="profile-section">
+                        <div class="profile-info" id="profileInfo" style="display: none;">
+                            <img id="userAvatar" class="profile-avatar" src="" alt="Profile">
+                            <span id="userName"></span>
+                        </div>
+                        <button id="loginBtn" class="login-btn">
+                            <i class="fab fa-google"></i>
+                            Sign in with Google
+                        </button>
+                        <button id="logoutBtn" class="logout-btn" style="display: none;">
+                            <i class="fas fa-sign-out-alt"></i>
+                            Sign out
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Container -->
+        <div class="main-container">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-section" data-aos="fade-right">
+                    <h3><i class="fas fa-magic"></i> AI Recipe Generator</h3>
+                    <div class="ingredient-search">
+                        <label>Enter your ingredients:</label>
+                        <div class="ingredient-inputs" id="ingredientInputs">
+                            <div class="ingredient-input-group">
+                                <input type="text" placeholder="e.g., chicken" class="ingredient-input">
+                                <button class="remove-ingredient-btn" style="display: none;">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <button class="add-ingredient-btn" id="addIngredientBtn">
+                            <i class="fas fa-plus"></i>
+                            Add Ingredient
+                        </button>
+                        <button class="generate-btn" id="generateRecipeBtn">
+                            <i class="fas fa-wand-magic-sparkles"></i>
+                            Generate Recipe
+                        </button>
+                    </div>
+                </div>
+
+                <div class="sidebar-section" data-aos="fade-right" data-aos-delay="200">
+                    <h3><i class="fas fa-filter"></i> Quick Actions</h3>
+                    <div class="quick-actions">
+                        <button class="action-btn" id="viewAllRecipesBtn">
+                            <i class="fas fa-list"></i>
+                            View All Recipes
+                        </button>
+                        <button class="action-btn" id="myRecipesBtn">
+                            <i class="fas fa-user-chef"></i>
+                            My Recipes
+                        </button>
+                        <button class="action-btn" id="generateMealPlanBtn">
+                            <i class="fas fa-calendar-week"></i>
+                            Generate Meal Plan
+                        </button>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="main-content">
+                <!-- Loading Spinner -->
+                <div class="loading-spinner" id="loadingSpinner" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Generating your recipe...</p>
+                </div>
+
+                <!-- Recipe Feed -->
+                <div class="feed-container" id="feedContainer">
+                    <div class="feed-header" data-aos="fade-down">
+                        <h2 id="feedTitle">Recipe Feed</h2>
+                        <button class="share-recipe-btn" id="shareRecipeBtn">
+                            <i class="fas fa-plus"></i>
+                            Share Recipe
+                        </button>
+                    </div>
+                    
+                    <!-- Empty State -->
+                    <div class="empty-state" id="emptyState" data-aos="fade-up">
+                        <i class="fas fa-utensils"></i>
+                        <h3>No recipes found</h3>
+                        <p>Start by generating a recipe with AI or browse shared recipes from the community!</p>
+                    </div>
+
+                    <!-- Recipe Cards Container -->
+                    <div class="recipe-grid" id="recipeGrid">
+                        <!-- Recipe cards will be dynamically inserted here -->
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Recipe Modal -->
+    <div class="modal" id="recipeModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalRecipeTitle"></h2>
+                <div class="modal-actions">
+                    <button class="modal-btn edit-btn" id="editRecipeBtn" style="display: none;">
+                        <i class="fas fa-edit"></i>
+                        Edit
+                    </button>
+                    <button class="modal-btn delete-btn" id="deleteRecipeBtn" style="display: none;">
+                        <i class="fas fa-trash"></i>
+                        Delete
+                    </button>
+                    <button class="modal-btn healthify-btn" id="healthifyBtn">
+                        <i class="fas fa-heart"></i>
+                        Make Healthier
+                    </button>
+                    <button class="modal-btn save-btn" id="saveRecipeBtn">
+                        <i class="fas fa-bookmark"></i>
+                        Save Recipe
+                    </button>
+                    <button class="modal-btn close-btn" id="closeModalBtn">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="recipe-meta">
+                    <div class="recipe-info">
+                        <span class="cook-time" id="modalCookTime"></span>
+                        <span class="author" id="modalAuthor"></span>
+                    </div>
+                    <div class="recipe-tags" id="modalTags"></div>
+                </div>
+                <div class="recipe-content">
+                    <div class="ingredients-section">
+                        <h3><i class="fas fa-list-ul"></i> Ingredients</h3>
+                        <ul id="modalIngredients"></ul>
+                    </div>
+                    <div class="instructions-section">
+                        <h3><i class="fas fa-tasks"></i> Instructions</h3>
+                        <ol id="modalInstructions"></ol>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Share Recipe Modal -->
+    <div class="modal" id="shareModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Share Your Recipe</h2>
+                <button class="modal-btn close-btn" id="closeShareModalBtn">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="shareRecipeForm">
+                    <div class="form-group">
+                        <label for="shareTitle">Recipe Title *</label>
+                        <input type="text" id="shareTitle" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="shareIngredients">Ingredients (one per line) *</label>
+                        <textarea id="shareIngredients" rows="6" required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="shareInstructions">Instructions (one step per line) *</label>
+                        <textarea id="shareInstructions" rows="8" required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="shareCookTime">Cooking Time (in minutes)</label>
+                        <input type="number" id="shareCookTime" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="shareTags">Tags (comma separated)</label>
+                        <input type="text" id="shareTags" placeholder="e.g., vegetarian, quick, easy">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="cancel-btn" id="cancelShareBtn">Cancel</button>
+                        <button type="submit" class="submit-btn">Share Recipe</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize AOS
+        AOS.init({
+            duration: 800,
+            once: true,
+            offset: 100
+        });
+    </script>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
