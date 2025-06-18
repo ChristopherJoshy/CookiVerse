@@ -22,7 +22,8 @@ import {
     doc,
     setDoc,
     deleteDoc,
-    serverTimestamp 
+    serverTimestamp,
+    getDoc
 } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
 let isFirebaseMode = false;
@@ -382,41 +383,64 @@ export const removeBookmark = async (recipeId) => {
     }
 };
 
-export const getUserBookmarksWithRecipes = async (userId) => {
+export const getUserBookmarksWithRecipes = async () => {
+    const user = isFirebaseMode ? auth.currentUser : demoCurrentUser;
+    if (!user) {
+        throw new Error('User must be authenticated to view bookmarks');
+    }
+    
     if (isFirebaseMode) {
         try {
             const bookmarksQuery = query(
                 collection(db, 'bookmarks'),
-                where('userId', '==', userId)
+                where('userId', '==', user.uid)
             );
             const bookmarksSnapshot = await getDocs(bookmarksQuery);
             const bookmarkedRecipeIds = [];
             bookmarksSnapshot.forEach((doc) => {
-                bookmarkedRecipeIds.push(doc.data().recipeId);
+                const bookmarkData = doc.data();
+                if (bookmarkData && bookmarkData.recipeId) {
+                    bookmarkedRecipeIds.push(bookmarkData.recipeId);
+                }
             });
             
             if (bookmarkedRecipeIds.length === 0) return [];
 
-            const recipesQuery = query(collection(db, 'recipes'));
-            const recipesSnapshot = await getDocs(recipesQuery);
+            // Fetch recipes directly using their IDs for better accuracy
             const bookmarkedRecipes = [];
-            recipesSnapshot.forEach((doc) => {
-                if (bookmarkedRecipeIds.includes(doc.id)) {
-                    bookmarkedRecipes.push({ id: doc.id, ...doc.data() });
+            for (const recipeId of bookmarkedRecipeIds) {
+                try {
+                    const recipeDoc = doc(db, 'recipes', recipeId);
+                    const recipeSnap = await getDoc(recipeDoc);
+                    if (recipeSnap.exists()) {
+                        bookmarkedRecipes.push({ 
+                            id: recipeSnap.id, 
+                            ...recipeSnap.data(),
+                            isBookmarked: true  // Mark as bookmarked for UI
+                        });
+                    }
+                } catch (err) {
+                    console.error(`Error fetching recipe with ID ${recipeId}:`, err);
                 }
-            });
+            }
+            
             return bookmarkedRecipes;
         } catch (error) {
-            console.error('Firebase error:', error);
+            console.error('Firebase error when fetching bookmarks:', error);
+            throw new Error('Failed to fetch your bookmarked recipes.');
         }
     }
     
+    // Demo mode
     const bookmarks = JSON.parse(localStorage.getItem('cookiverse-bookmarks') || '[]');
     const recipes = JSON.parse(localStorage.getItem('cookiverse-recipes') || '[]');
-    const userBookmarks = bookmarks.filter(b => b.userId === userId);
+    const userBookmarks = bookmarks.filter(b => b.userId === user.uid);
     return recipes.filter(recipe => 
         userBookmarks.some(bookmark => bookmark.recipeId === recipe.id)
-    );
+    ).map(recipe => ({
+        ...recipe,
+        isBookmarked: true  // Mark as bookmarked for UI
+    }));
 };
 
 export const isRecipeBookmarked = async (recipeId) => {
@@ -433,54 +457,137 @@ export const isRecipeBookmarked = async (recipeId) => {
             const bookmarkSnapshot = await getDocs(bookmarkQuery);
             return !bookmarkSnapshot.empty;
         } catch (error) {
-            console.error('Firebase error:', error);
+            console.error('Firebase error checking bookmark status:', error);
             return false;
         }
     } else {
         const bookmarks = JSON.parse(localStorage.getItem('cookiverse-bookmarks') || '[]');
-        const bookmarkId = `${user.uid}_${recipeId}`;
-        return bookmarks.some(b => b.id === bookmarkId);
+        return bookmarks.some(b => b.userId === user.uid && b.recipeId === recipeId);
     }
 };
 
 export const updateRecipe = async (recipeId, recipeData) => {
+    const user = isFirebaseMode ? auth.currentUser : demoCurrentUser;
+    if (!user) {
+        throw new Error('User must be authenticated to update recipes');
+    }
+
     if (isFirebaseMode) {
         try {
             const recipeRef = doc(db, 'recipes', recipeId);
-            await setDoc(recipeRef, recipeData, { merge: true });
+            
+            // Get current recipe data to check ownership
+            const recipeSnap = await getDoc(recipeRef);
+            if (!recipeSnap.exists()) {
+                throw new Error('Recipe not found');
+            }
+            
+            const recipeData = recipeSnap.data();
+            if (recipeData.authorId !== user.uid) {
+                throw new Error('You are not authorized to edit this recipe');
+            }
+            
+            // Update with timestamp
+            const updatedRecipe = {
+                ...recipeData,
+                updatedAt: serverTimestamp(),
+            };
+            
+            await setDoc(recipeRef, updatedRecipe, { merge: true });
             console.log('Recipe updated in Firebase with ID:', recipeId);
             return recipeId;
         } catch (error) {
             console.error('Error updating recipe in Firebase:', error);
-            throw new Error('Could not update recipe in the cloud.');
+            throw new Error('Could not update recipe in the cloud: ' + error.message);
         }
     } else {
         const recipes = JSON.parse(localStorage.getItem('cookiverse-recipes') || '[]');
         const recipeIndex = recipes.findIndex(r => r.id === recipeId);
         if (recipeIndex > -1) {
-            recipes[recipeIndex] = { ...recipes[recipeIndex], ...recipeData };
+            // Ensure the user is the author
+            if (recipes[recipeIndex].authorId !== user.uid) {
+                throw new Error('You are not authorized to edit this recipe');
+            }
+            
+            recipes[recipeIndex] = { 
+                ...recipes[recipeIndex], 
+                ...recipeData,
+                updatedAt: new Date() 
+            };
             localStorage.setItem('cookiverse-recipes', JSON.stringify(recipes));
             console.log('Recipe updated in demo storage with ID:', recipeId);
+            return recipeId;
+        } else {
+            throw new Error('Recipe not found');
         }
-        return recipeId;
     }
 };
 
 export const deleteRecipe = async (recipeId) => {
+    const user = isFirebaseMode ? auth.currentUser : demoCurrentUser;
+    if (!user) {
+        throw new Error('User must be authenticated to delete recipes');
+    }
+
     if (isFirebaseMode) {
         try {
+            // First check if the user is authorized to delete the recipe
             const recipeRef = doc(db, 'recipes', recipeId);
+            const recipeSnap = await getDoc(recipeRef);
+            
+            if (!recipeSnap.exists()) {
+                throw new Error('Recipe not found');
+            }
+            
+            const recipeData = recipeSnap.data();
+            if (recipeData.authorId !== user.uid) {
+                throw new Error('You are not authorized to delete this recipe');
+            }
+            
+            // Delete the recipe
             await deleteDoc(recipeRef);
-            console.log('Recipe deleted from Firebase with ID:', recipeId);
+            
+            // Also delete any bookmarks for this recipe
+            const bookmarksQuery = query(
+                collection(db, 'bookmarks'), 
+                where('recipeId', '==', recipeId)
+            );
+            const bookmarksSnapshot = await getDocs(bookmarksQuery);
+            
+            const deletePromises = [];
+            bookmarksSnapshot.forEach((bookmarkDoc) => {
+                deletePromises.push(deleteDoc(doc(db, 'bookmarks', bookmarkDoc.id)));
+            });
+            
+            await Promise.all(deletePromises);
+            
+            console.log('Recipe and related bookmarks deleted from Firebase with ID:', recipeId);
         } catch (error) {
             console.error('Error deleting recipe from Firebase:', error);
-            throw new Error('Could not delete recipe from the cloud.');
+            throw new Error('Could not delete recipe from the cloud: ' + error.message);
         }
     } else {
+        // Demo mode
         let recipes = JSON.parse(localStorage.getItem('cookiverse-recipes') || '[]');
+        const recipeIndex = recipes.findIndex(r => r.id === recipeId);
+        
+        if (recipeIndex === -1) {
+            throw new Error('Recipe not found');
+        }
+        
+        if (recipes[recipeIndex].authorId !== user.uid) {
+            throw new Error('You are not authorized to delete this recipe');
+        }
+        
         recipes = recipes.filter(r => r.id !== recipeId);
         localStorage.setItem('cookiverse-recipes', JSON.stringify(recipes));
-        console.log('Recipe deleted from demo storage with ID:', recipeId);
+        
+        // Delete any bookmarks for this recipe
+        let bookmarks = JSON.parse(localStorage.getItem('cookiverse-bookmarks') || '[]');
+        bookmarks = bookmarks.filter(b => b.recipeId !== recipeId);
+        localStorage.setItem('cookiverse-bookmarks', JSON.stringify(bookmarks));
+        
+        console.log('Recipe and related bookmarks deleted from demo storage with ID:', recipeId);
     }
 };
 

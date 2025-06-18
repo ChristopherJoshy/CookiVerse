@@ -58,48 +58,64 @@
 
     <!-- Main App Container -->
     <div class="app-container" id="appContainer" style="display: none;">
-        <!-- Navigation Header -->
-        <header class="navbar">
-            <div class="nav-container">
-                <div class="nav-left">
-                    <div class="logo">
-                        <i class="fas fa-cookie-bite"></i>
-                        <span>CookiVerse</span>
-                    </div>
+        <!-- Navigation -->
+        <div class="nav-container">
+            <div class="app-header">
+                <div class="logo">
+                    <i class="fas fa-cookie-bite"></i>
+                    <span>CookiVerse</span>
+                </div>
+                <div class="search-bar-container">
                     <div class="search-bar">
                         <i class="fas fa-search"></i>
-                        <input type="text" placeholder="Search recipes..." id="searchInput">
+                        <input type="text" id="searchInput" placeholder="Search recipes...">
                     </div>
                 </div>
-                <div class="nav-right">
-                    <div class="nav-icons">
-                        <button class="nav-icon" id="homeBtn" title="Home">
-                            <i class="fas fa-home"></i>
-                        </button>
-                        <button class="nav-icon" id="bookmarksBtn" title="Saved Recipes">
-                            <i class="fas fa-bookmark"></i>
-                        </button>
-                        <button class="nav-icon" id="mealPlanBtn" title="Meal Planner">
-                            <i class="fas fa-calendar-alt"></i>
-                        </button>
+                <div class="auth-container">
+                    <div class="profile-info" id="profileInfo" style="display: none;">
+                        <img id="userAvatar" class="profile-avatar" src="" alt="Profile">
+                        <span id="userName"></span>
                     </div>
-                    <div class="profile-section">
-                        <div class="profile-info" id="profileInfo" style="display: none;">
-                            <img id="userAvatar" class="profile-avatar" src="" alt="Profile">
-                            <span id="userName"></span>
-                        </div>
-                        <button id="loginBtn" class="login-btn">
-                            <i class="fab fa-google"></i>
-                            Sign in with Google
-                        </button>
-                        <button id="logoutBtn" class="logout-btn" style="display: none;">
-                            <i class="fas fa-sign-out-alt"></i>
-                            Sign out
-                        </button>
-                    </div>
+                    <button id="loginBtn" class="auth-btn">
+                        <i class="fas fa-user-circle"></i>
+                        Login
+                    </button>
+                    <button id="logoutBtn" class="auth-btn" style="display: none;">
+                        <i class="fas fa-sign-out-alt"></i>
+                        Logout
+                    </button>
                 </div>
             </div>
-        </header>
+            <div class="app-navigation">
+                <nav>
+                    <button id="homeBtn" class="nav-btn active">
+                        <i class="fas fa-home"></i>
+                        <span>Feed</span>
+                    </button>
+                    <button id="bookmarksBtn" class="nav-btn">
+                        <i class="fas fa-bookmark"></i>
+                        <span>Bookmarks</span>
+                        <div class="bookmark-count" id="bookmarkCount">0</div>
+                    </button>
+                    <button id="mealPlanBtn" class="nav-btn">
+                        <i class="fas fa-utensils"></i>
+                        <span>Meal Plan</span>
+                    </button>
+                    <button id="savedMealPlansBtn" class="nav-btn">
+                        <i class="fas fa-calendar-check"></i>
+                        <span>Saved Plans</span>
+                    </button>
+                    <button id="myRecipesBtn" class="nav-btn">
+                        <i class="fas fa-sticky-note"></i>
+                        <span>My Recipes</span>
+                    </button>
+                    <button id="shareBtn" class="nav-btn">
+                        <i class="fas fa-share-alt"></i>
+                        <span>Share Recipe</span>
+                    </button>
+                </nav>
+            </div>
+        </div>
 
         <!-- Main Container -->
         <div class="main-container">
@@ -152,7 +168,7 @@
                 <!-- Loading Spinner -->
                 <div class="loading-spinner" id="loadingSpinner" style="display: none;">
                     <div class="spinner"></div>
-                    <p>Generating your recipe...</p>
+                    <p id="loadingMessage">Processing your request...</p>
                 </div>
 
                 <!-- Recipe Feed -->
@@ -234,7 +250,7 @@
     <div class="modal" id="shareModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Share Your Recipe</h2>
+                <h2 id="shareModalTitle">Share Your Recipe</h2>
                 <button class="modal-btn close-btn" id="closeShareModalBtn">
                     <i class="fas fa-times"></i>
                 </button>
@@ -263,9 +279,26 @@
                     </div>
                     <div class="form-actions">
                         <button type="button" class="cancel-btn" id="cancelShareBtn">Cancel</button>
-                        <button type="submit" class="submit-btn">Share Recipe</button>
+                        <button type="submit" class="submit-btn" id="shareSubmitBtn">Share Recipe</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Meal Plan Modal -->
+    <div class="modal" id="mealPlanModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Your 3-Day Meal Plan</h2>
+                <button class="modal-btn close-btn" id="closeMealPlanBtn">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="meal-plan-grid" id="mealPlanGrid">
+                    <!-- Meal plan content will be dynamically inserted here -->
+                </div>
             </div>
         </div>
     </div>

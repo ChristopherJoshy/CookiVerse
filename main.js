@@ -18,9 +18,11 @@ import {
 // Application state
 let currentUser = null;
 let currentRecipes = [];
-let currentView = 'feed'; // 'feed', 'bookmarks', 'myRecipes'
+let currentView = 'feed'; // 'feed', 'bookmarks', 'myRecipes', 'savedMealPlans'
 let selectedRecipe = null;
 let isEditing = false;
+let feedRefreshInterval = null;
+let savedMealPlans = [];
 
 // Gemini API configuration
 const GEMINI_API_KEY = "AIzaSyCSxpqO4icaYpS48fGNG8sbfdXT9zjMnfk";
@@ -31,74 +33,81 @@ const elements = {
     // Login screen
     loginScreen: document.getElementById('loginScreen'),
     loginScreenBtn: document.getElementById('loginScreenBtn'),
-    appContainer: document.getElementById('appContainer'),
     
-    // Navigation
-    loginBtn: document.getElementById('loginBtn'),
-    logoutBtn: document.getElementById('logoutBtn'),
-    profileInfo: document.getElementById('profileInfo'),
-    userAvatar: document.getElementById('userAvatar'),
-    userName: document.getElementById('userName'),
+    // App container
+    appContainer: document.getElementById('appContainer'),
     
     // Navigation
     homeBtn: document.getElementById('homeBtn'),
     bookmarksBtn: document.getElementById('bookmarksBtn'),
     mealPlanBtn: document.getElementById('mealPlanBtn'),
+    savedMealPlansBtn: document.getElementById('savedMealPlansBtn'),
+    
+    // User profile
+    profileInfo: document.getElementById('profileInfo'),
+    userAvatar: document.getElementById('userAvatar'),
+    userName: document.getElementById('userName'),
+    
+    // Authentication
+    loginBtn: document.getElementById('loginBtn'),
+    logoutBtn: document.getElementById('logoutBtn'),
     
     // Search
     searchInput: document.getElementById('searchInput'),
     
-    // Ingredient search
-    ingredient1: document.getElementById('ingredient1'),
-    ingredient2: document.getElementById('ingredient2'),
-    ingredient3: document.getElementById('ingredient3'),
+    // Recipe feed
+    feedContainer: document.getElementById('feedContainer'),
+    feedTitle: document.getElementById('feedTitle'),
+    recipeGrid: document.getElementById('recipeGrid'),
+    emptyState: document.getElementById('emptyState'),
+    
+    // Loading
+    loadingSpinner: document.getElementById('loadingSpinner'),
+    loadingMessage: document.getElementById('loadingMessage'),
+    
+    // Recipe generation
+    ingredientInputs: document.getElementById('ingredientInputs'),
+    addIngredientBtn: document.getElementById('addIngredientBtn'),
     generateRecipeBtn: document.getElementById('generateRecipeBtn'),
     
     // Quick actions
     viewAllRecipesBtn: document.getElementById('viewAllRecipesBtn'),
     myRecipesBtn: document.getElementById('myRecipesBtn'),
     generateMealPlanBtn: document.getElementById('generateMealPlanBtn'),
-    
-    // Feed
-    feedContainer: document.getElementById('feedContainer'),
-    feedTitle: document.getElementById('feedTitle'),
     shareRecipeBtn: document.getElementById('shareRecipeBtn'),
-    emptyState: document.getElementById('emptyState'),
-    recipeGrid: document.getElementById('recipeGrid'),
-    loadingSpinner: document.getElementById('loadingSpinner'),
     
-    // Modals
+    // Recipe modal
     recipeModal: document.getElementById('recipeModal'),
-    shareModal: document.getElementById('shareModal'),
-    mealPlanModal: document.getElementById('mealPlanModal'),
-    
-    // Recipe modal elements
     modalRecipeTitle: document.getElementById('modalRecipeTitle'),
     modalCookTime: document.getElementById('modalCookTime'),
     modalAuthor: document.getElementById('modalAuthor'),
     modalTags: document.getElementById('modalTags'),
     modalIngredients: document.getElementById('modalIngredients'),
     modalInstructions: document.getElementById('modalInstructions'),
+    closeModalBtn: document.getElementById('closeModalBtn'),
     healthifyBtn: document.getElementById('healthifyBtn'),
     saveRecipeBtn: document.getElementById('saveRecipeBtn'),
     editRecipeBtn: document.getElementById('editRecipeBtn'),
     deleteRecipeBtn: document.getElementById('deleteRecipeBtn'),
-    closeModalBtn: document.getElementById('closeModalBtn'),
     
-    // Share modal elements
-    shareModalTitle: document.querySelector('#shareModal .modal-header h2'),
+    // Share recipe modal
+    shareModal: document.getElementById('shareModal'),
+    shareModalTitle: document.getElementById('shareModalTitle'),
     shareRecipeForm: document.getElementById('shareRecipeForm'),
     shareTitle: document.getElementById('shareTitle'),
     shareIngredients: document.getElementById('shareIngredients'),
     shareInstructions: document.getElementById('shareInstructions'),
     shareCookTime: document.getElementById('shareCookTime'),
     shareTags: document.getElementById('shareTags'),
+    shareSubmitBtn: document.getElementById('shareSubmitBtn'),
     closeShareModalBtn: document.getElementById('closeShareModalBtn'),
     cancelShareBtn: document.getElementById('cancelShareBtn'),
     
     // Meal plan modal
+    mealPlanModal: document.getElementById('mealPlanModal'),
     mealPlanGrid: document.getElementById('mealPlanGrid'),
-    closeMealPlanBtn: document.getElementById('closeMealPlanBtn')
+    closeMealPlanBtn: document.getElementById('closeMealPlanBtn'),
+    bookmarkCount: document.getElementById('bookmarkCount')
 };
 
 // Animation Helper Functions
@@ -175,20 +184,36 @@ document.addEventListener('DOMContentLoaded', async () => {
             elements.appContainer.style.display = 'block';
             
             // Update UI with user info
-            elements.userAvatar.src = user.photoURL || 'https://via.placeholder.com/32';
-            elements.userName.textContent = user.displayName || 'User';
+            if (elements.profileInfo) {
+                elements.profileInfo.style.display = 'flex';
+                
+                if (elements.userAvatar) {
+                    elements.userAvatar.src = user.photoURL || 'https://via.placeholder.com/32';
+                }
+                
+                if (elements.userName) {
+                    elements.userName.textContent = user.displayName || 'User';
+                }
+            }
             
             // Load initial data
             loadRecipeFeed();
+            
+            // Start automatic feed refresh
+            startFeedRefresh();
         } else {
             console.log('User not authenticated');
             // Show login screen, hide main app
             elements.loginScreen.style.display = 'flex';
             elements.appContainer.style.display = 'none';
             
-            // Reset UI elements
-            elements.userAvatar.src = '';
-            elements.userName.textContent = '';
+            // Hide user profile info
+            if (elements.profileInfo) {
+                elements.profileInfo.style.display = 'none';
+            }
+            
+            // Stop feed refresh if running
+            stopFeedRefresh();
         }
         
         // Update UI state
@@ -233,16 +258,20 @@ function setupEventListeners() {
         showButtonFeedback(elements.mealPlanBtn);
         generateMealPlan();
     });
+    elements.savedMealPlansBtn?.addEventListener('click', () => {
+        showButtonFeedback(elements.savedMealPlansBtn);
+        switchView('savedMealPlans');
+    });
     
     // Search
     elements.searchInput?.addEventListener('input', handleSearch);
     
     // Ingredient management
-    document.getElementById('addIngredientBtn')?.addEventListener('click', () => {
-        showButtonFeedback(document.getElementById('addIngredientBtn'));
+    elements.addIngredientBtn?.addEventListener('click', () => {
+        showButtonFeedback(elements.addIngredientBtn);
         addIngredientInput();
     });
-    document.getElementById('ingredientInputs')?.addEventListener('click', handleIngredientInputClick);
+    elements.ingredientInputs?.addEventListener('click', handleIngredientInputClick);
     
     // Recipe generation
     elements.generateRecipeBtn?.addEventListener('click', () => {
@@ -387,24 +416,62 @@ async function handleLogout() {
 // UI update functions
 function updateUI() {
     if (currentUser) {
-        // Show authenticated state
+        // User is logged in
+        elements.appContainer.style.display = 'block';
+        elements.loginScreen.style.display = 'none';
         elements.loginBtn.style.display = 'none';
         elements.logoutBtn.style.display = 'flex';
-        elements.profileInfo.style.display = 'flex';
-        elements.userAvatar.src = currentUser.photoURL || 'https://via.placeholder.com/32';
-        elements.userName.textContent = currentUser.displayName || 'User';
-        elements.shareRecipeBtn.style.display = 'flex';
+        
+        // Show user profile info
+        if (elements.profileInfo) {
+            elements.profileInfo.style.display = 'flex';
+            
+            // Set user avatar and name
+            if (elements.userAvatar) {
+                elements.userAvatar.src = currentUser.photoURL || 'https://via.placeholder.com/32';
+            }
+            
+            if (elements.userName) {
+                elements.userName.textContent = currentUser.displayName || 'User';
+            }
+        }
+
+        // Load data based on current view
+        if (currentView === 'feed') {
+            loadRecipeFeed();
+        } else if (currentView === 'bookmarks') {
+            loadBookmarkedRecipes();
+        } else if (currentView === 'myRecipes') {
+            loadUserRecipes();
+        } else if (currentView === 'savedMealPlans') {
+            loadSavedMealPlans();
+        }
+
+        // Initialize bookmark count
+        updateBookmarkCount();
+        
+        // Load meal plans from storage
+        loadMealPlansFromStorage();
+        
+        // Start auto-refresh for feed
+        startFeedRefresh();
     } else {
-        // Show unauthenticated state
+        // User is logged out
+        stopFeedRefresh();
+        elements.appContainer.style.display = 'none';
+        elements.loginScreen.style.display = 'flex';
         elements.loginBtn.style.display = 'flex';
         elements.logoutBtn.style.display = 'none';
-        elements.profileInfo.style.display = 'none';
-        elements.shareRecipeBtn.style.display = 'none';
+        
+        // Hide user profile info
+        if (elements.profileInfo) {
+            elements.profileInfo.style.display = 'none';
+        }
     }
 }
 
 function setActiveNavigation(active) {
-    const navButtons = [elements.homeBtn, elements.bookmarksBtn];
+    const navButtons = [elements.homeBtn, elements.bookmarksBtn, elements.savedMealPlansBtn];
     navButtons.forEach(btn => btn?.classList.remove('active'));
     
     switch(active) {
@@ -414,74 +481,253 @@ function setActiveNavigation(active) {
         case 'bookmarks':
             elements.bookmarksBtn?.classList.add('active');
             break;
+        case 'savedMealPlans':
+            elements.savedMealPlansBtn?.classList.add('active');
+            break;
     }
 }
 
 // View switching
 async function switchView(view) {
-    currentView = view;
-    showLoading(true);
+    if (currentView === view) return;
     
-    try {
-        switch(view) {
+    // Fade out current content
+    await fadeOut(elements.recipeGrid);
+    
+    // Update current view
+    currentView = view;
+    
+    // Update feed title based on view
+    switch (view) {
             case 'feed':
-                setActiveNavigation('home');
                 elements.feedTitle.textContent = 'Recipe Feed';
                 await loadRecipeFeed();
+            startFeedRefresh(); // Start auto-refresh when viewing the feed
                 break;
             case 'bookmarks':
-                if (!currentUser) {
-                    showError('Please sign in to view bookmarked recipes.');
-                    return;
-                }
-                setActiveNavigation('bookmarks');
-                elements.feedTitle.textContent = 'Saved Recipes';
+            elements.feedTitle.textContent = 'Bookmarked Recipes';
                 await loadBookmarkedRecipes();
+            stopFeedRefresh(); // Stop auto-refresh when not on feed
                 break;
             case 'myRecipes':
-                if (!currentUser) {
-                    showError('Please sign in to view your recipes.');
-                    return;
-                }
-                setActiveNavigation('home');
                 elements.feedTitle.textContent = 'My Recipes';
                 await loadUserRecipes();
+            stopFeedRefresh(); // Stop auto-refresh when not on feed
+            break;
+        case 'savedMealPlans':
+            elements.feedTitle.textContent = 'Saved Meal Plans';
+            await loadSavedMealPlans();
+            stopFeedRefresh(); // Stop auto-refresh when not on feed
                 break;
         }
+    
+    // Update active navigation
+    setActiveNavigation(view);
+    
+    // Fade in new content
+    fadeIn(elements.recipeGrid);
+}
+
+// Recipe loading functions
+async function loadRecipeFeed(silentRefresh = false) {
+    if (!silentRefresh) {
+        showLoading(true, 'Loading recipes...');
+    }
+    
+    try {
+        // Get recipes from Firebase or local storage
+        const recipes = await getPublicRecipes();
+        currentRecipes = recipes;
+        
+        if (recipes.length === 0) {
+            // Check if there are any recipes in local storage
+            const localRecipes = JSON.parse(localStorage.getItem('cookiverse-recipes') || '[]');
+            
+            if (localRecipes.length > 0) {
+                // Use local recipes if available
+                currentRecipes = localRecipes;
+                renderRecipes(localRecipes);
+            } else {
+                // Show empty state if no recipes are found
+                showEmptyState();
+            }
+        } else {
+            // Render recipes from Firebase
+            renderRecipes(recipes);
+            
+            // Also save to local storage for offline access
+            localStorage.setItem('cookiverse-recipes', JSON.stringify(recipes));
+        }
     } catch (error) {
-        console.error(`Error loading ${view}:`, error);
-        showError(`Failed to load ${view}. Please try again.`);
+        console.error('Error loading recipe feed:', error);
+        
+        // Try to load from local storage as fallback
+        const localRecipes = JSON.parse(localStorage.getItem('cookiverse-recipes') || '[]');
+        
+        if (localRecipes.length > 0) {
+            currentRecipes = localRecipes;
+            renderRecipes(localRecipes);
+            showSuccess('Loaded recipes from local storage');
+        } else {
+            showError('Failed to load recipes. Please try again.');
+            showEmptyState();
+        }
+    } finally {
+        if (!silentRefresh) {
+            showLoading(false);
+        }
+    }
+}
+
+async function loadBookmarkedRecipes() {
+    showLoading(true, 'Loading your bookmarked recipes...');
+    
+    try {
+        if (!currentUser) {
+            showError('Please sign in to view bookmarks');
+            return;
+        }
+        
+        const bookmarkedRecipes = await getUserBookmarksWithRecipes();
+        
+        if (bookmarkedRecipes.length === 0) {
+            elements.recipeGrid.innerHTML = `
+                <div class="empty-state" style="display: block;">
+                    <i class="fas fa-bookmark"></i>
+                    <h3>No bookmarked recipes yet</h3>
+                    <p>Start exploring recipes and bookmark your favorites!</p>
+                    <button class="action-btn" id="exploreRecipesBtn">
+                        <i class="fas fa-compass"></i>
+                        Explore Recipes
+                    </button>
+                </div>
+            `;
+            
+            // Add event listener to return to feed
+            document.getElementById('exploreRecipesBtn')?.addEventListener('click', () => {
+                switchView('feed');
+            });
+        } else {
+            // Group recipes by categories
+            const categorized = categorizeRecipes(bookmarkedRecipes);
+            
+            const headerHtml = `
+                <div class="bookmarks-header">
+                    <h3>
+                        <i class="fas fa-bookmark"></i>
+                        Your Bookmarked Recipes (${bookmarkedRecipes.length})
+                    </h3>
+                    <div class="bookmark-filters">
+                        <button class="bookmark-filter active" data-filter="all">All</button>
+                        ${categorized.categories.map(cat => 
+                            `<button class="bookmark-filter" data-filter="${cat}">${cat} (${categorized.byCategory[cat].length})</button>`
+                        ).join('')}
+                    </div>
+                </div>
+            `;
+            
+            elements.recipeGrid.innerHTML = headerHtml;
+            
+            // Create a container for recipes
+            const recipesContainer = document.createElement('div');
+            recipesContainer.classList.add('recipe-grid');
+            recipesContainer.id = 'bookmarkedRecipesContainer';
+            
+            // Append recipes to the container
+            bookmarkedRecipes.forEach(recipe => {
+                recipesContainer.appendChild(createRecipeCard(recipe, true));
+            });
+            
+            elements.recipeGrid.appendChild(recipesContainer);
+            
+            // Add filter functionality
+            document.querySelectorAll('.bookmark-filter').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const filter = e.target.dataset.filter;
+                    
+                    // Update active state
+                    document.querySelectorAll('.bookmark-filter').forEach(b => b.classList.remove('active'));
+                    e.target.classList.add('active');
+                    
+                    // Filter recipes
+                    if (filter === 'all') {
+                        renderBookmarkedRecipes(bookmarkedRecipes);
+                    } else {
+                        const filtered = categorized.byCategory[filter] || [];
+                        renderBookmarkedRecipes(filtered);
+                    }
+                });
+            });
+        }
+        
+        // Update bookmark count in the navigation
+        updateBookmarkCount();
+        
+    } catch (error) {
+        console.error('Error loading bookmarked recipes:', error);
+        showError('Failed to load bookmarked recipes');
     } finally {
         showLoading(false);
     }
 }
 
-// Recipe loading functions
-async function loadRecipeFeed() {
-    try {
-        const recipes = await getPublicRecipes();
-        currentRecipes = recipes;
-        renderRecipes(recipes);
-    } catch (error) {
-        console.error('Error loading recipe feed:', error);
-        showError('Unable to load recipes. Please check your connection.');
-        showEmptyState();
-    }
+// Render bookmarked recipes
+function renderBookmarkedRecipes(recipes) {
+    const container = document.getElementById('bookmarkedRecipesContainer');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    recipes.forEach(recipe => {
+        container.appendChild(createRecipeCard(recipe, true));
+    });
 }
 
-async function loadBookmarkedRecipes() {
-    try {
-        const recipes = await getUserBookmarksWithRecipes(currentUser.uid);
-        currentRecipes = recipes;
-        renderRecipes(recipes);
-    } catch (error) {
-        console.error('Error loading bookmarked recipes:', error);
-        showError('Unable to load bookmarked recipes.');
-        showEmptyState();
-    }
+// Categorize recipes by tags
+function categorizeRecipes(recipes) {
+    const byCategory = {};
+    const categories = new Set();
+    
+    recipes.forEach(recipe => {
+        // Extract main category from tags or use default
+        let category = 'Uncategorized';
+        if (recipe.tags && recipe.tags.length > 0) {
+            category = recipe.tags[0].charAt(0).toUpperCase() + recipe.tags[0].slice(1);
+        }
+        
+        categories.add(category);
+        
+        if (!byCategory[category]) {
+            byCategory[category] = [];
+        }
+        byCategory[category].push(recipe);
+    });
+    
+    return {
+        byCategory,
+        categories: Array.from(categories)
+    };
+}
+
+// Update bookmark count in navigation
+function updateBookmarkCount() {
+    if (!elements.bookmarkCount) return;
+    
+    firebase.firestore().collection('bookmarks')
+        .where('userId', '==', currentUser?.uid)
+        .get()
+        .then(snapshot => {
+            const count = snapshot.size;
+            elements.bookmarkCount.textContent = count;
+            elements.bookmarkCount.style.display = count > 0 ? 'flex' : 'none';
+        })
+        .catch(error => {
+            console.error('Error counting bookmarks:', error);
+        });
 }
 
 async function loadUserRecipes() {
+    showLoading(true, 'Loading your recipes...');
+    
     try {
         const recipes = await getUserRecipes(currentUser.uid);
         currentRecipes = recipes;
@@ -490,11 +736,13 @@ async function loadUserRecipes() {
         console.error('Error loading user recipes:', error);
         showError('Unable to load your recipes.');
         showEmptyState();
+    } finally {
+        showLoading(false);
     }
 }
 
 // Recipe rendering
-function renderRecipes(recipes) {
+function renderRecipes(recipes, isBookmarked = false) {
     if (!recipes || recipes.length === 0) {
         showEmptyState();
         return;
@@ -504,52 +752,155 @@ function renderRecipes(recipes) {
     elements.recipeGrid.innerHTML = '';
     
     recipes.forEach(recipe => {
-        const recipeCard = createRecipeCard(recipe);
+        const recipeCard = createRecipeCard(recipe, isBookmarked);
         elements.recipeGrid.appendChild(recipeCard);
     });
 }
 
-function createRecipeCard(recipe) {
+// Create a recipe card element
+function createRecipeCard(recipe, isBookmarked = false) {
     const card = document.createElement('div');
     card.className = 'recipe-card';
-    card.setAttribute('data-aos', 'fade-up');
-    card.onclick = () => openRecipeModal(recipe);
+    card.setAttribute('data-recipe-id', recipe.id);
     
-    const preview = recipe.ingredients && recipe.ingredients.length > 0 
-        ? `Ingredients: ${recipe.ingredients.slice(0, 3).join(', ')}${recipe.ingredients.length > 3 ? '...' : ''}`
-        : recipe.description || 'Click to view full recipe';
+    // Check if recipe has isBookmarked property or use the parameter
+    isBookmarked = recipe.isBookmarked || isBookmarked;
     
-    const tags = recipe.tags || [];
-    const tagsHtml = tags.map(tag => `<span class="tag">${tag}</span>`).join('');
+    // Create tags HTML if recipe has tags
+    const tagsHtml = recipe.tags && recipe.tags.length > 0
+        ? `<div class="recipe-tags">${recipe.tags.map(tag => `<span class="tag">${tag}</span>`).join('')}</div>`
+        : '';
     
-    const authorInfo = recipe.authorName ? `
-        <div class="recipe-author">
-            <i class="fas fa-user-circle"></i>
-            <span>by ${recipe.authorName}</span>
-        </div>
-    ` : '';
+    const bookmarkIcon = isBookmarked 
+        ? '<i class="fas fa-bookmark bookmark-icon active"></i>' 
+        : '<i class="far fa-bookmark bookmark-icon"></i>';
     
     card.innerHTML = `
         <div class="recipe-card-header">
-            <h3>${recipe.title}</h3>
-            <div class="recipe-meta">
-                <span><i class="fas fa-clock"></i> ${recipe.cookTime || 'N/A'}</span>
-                <span><i class="fas fa-calendar"></i> ${formatDate(recipe.createdAt)}</span>
+            <div class="recipe-bookmark-btn" data-recipe-id="${recipe.id}">
+                ${bookmarkIcon}
             </div>
+            <h3 class="recipe-title">${recipe.title}</h3>
+            ${tagsHtml}
         </div>
-        <div class="recipe-card-body">
-            <div class="recipe-preview">${preview}</div>
-            <div class="recipe-tags">${tagsHtml}</div>
+        <div class="recipe-details">
+            <div class="recipe-meta">
+                <span class="cook-time"><i class="far fa-clock"></i> ${recipe.cookTime}</span>
+                <span class="ingredients-count">
+                    <i class="fas fa-list"></i> 
+                    ${recipe.ingredients ? recipe.ingredients.length : 0} ingredients
+                </span>
+            </div>
             <div class="recipe-footer">
-                ${authorInfo}
-                <div class="recipe-actions">
-                    <button class="recipe-action-btn bookmark-btn" onclick="event.stopPropagation(); toggleBookmark('${recipe.id}')" title="Save Recipe">
-                        <i class="fas fa-bookmark"></i>
+                <span class="recipe-date">${formatDate(recipe.createdAt)}</span>
+                ${recipe.authorId === currentUser?.uid ? 
+                    `<div class="recipe-actions">
+                        <button class="edit-recipe-btn" data-recipe-id="${recipe.id}">
+                            <i class="fas fa-edit"></i>
                     </button>
-                </div>
+                        <button class="delete-recipe-btn" data-recipe-id="${recipe.id}">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>` : ''}
             </div>
         </div>
     `;
+    
+    // Add click event to open the recipe modal
+    card.addEventListener('click', (e) => {
+        // Skip if bookmark button or action buttons were clicked
+        if (e.target.closest('.recipe-bookmark-btn') || e.target.closest('.recipe-actions')) {
+            return;
+        }
+        
+        openRecipeModal(recipe);
+    });
+    
+    // Add bookmark functionality
+    card.querySelector('.recipe-bookmark-btn')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        try {
+            await toggleBookmark(recipe.id);
+            
+            // Update visual state immediately for better UX
+            const bookmarkBtn = e.currentTarget;
+            const isNowBookmarked = await isRecipeBookmarked(recipe.id);
+            
+            // Update the icon
+            bookmarkBtn.innerHTML = isNowBookmarked
+                ? '<i class="fas fa-bookmark bookmark-icon active"></i>'
+                : '<i class="far fa-bookmark bookmark-icon"></i>';
+                
+            // Update the recipe object
+            recipe.isBookmarked = isNowBookmarked;
+            
+            // If we're in bookmarks view and unbookmarking, remove the card with animation
+            if (currentView === 'bookmarks' && !isNowBookmarked) {
+                fadeOut(card, 300);
+                setTimeout(() => {
+                    card.remove();
+                    
+                    // If no more bookmarks, show empty state
+                    if (document.querySelectorAll('.recipe-card').length === 0) {
+                        loadBookmarkedRecipes();
+                    } else {
+                        // Update the count in the header
+                        const countElement = document.querySelector('.bookmarks-header h3');
+                        if (countElement) {
+                            const currentCount = parseInt(countElement.textContent.match(/\d+/) || '0');
+                            countElement.innerHTML = `
+                                <i class="fas fa-bookmark"></i>
+                                Your Bookmarked Recipes (${currentCount - 1})
+                            `;
+                        }
+                    }
+                }, 300);
+            }
+            
+            // Update navigation bookmark count
+            updateBookmarkCount();
+            
+        } catch (error) {
+            console.error('Error toggling bookmark:', error);
+            showError('Failed to update bookmark status');
+        }
+    });
+    
+    // Add edit/delete functionality if user is the author
+    if (recipe.authorId === currentUser?.uid) {
+        // Edit button
+        card.querySelector('.edit-recipe-btn')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            isEditing = true;
+            selectedRecipe = recipe;
+            
+            // Open the share recipe form with the recipe data
+            elements.shareTitle.value = recipe.title;
+            elements.shareIngredients.value = recipe.ingredients.join('\n');
+            elements.shareInstructions.value = recipe.instructions.join('\n');
+            elements.shareCookTime.value = recipe.cookTime;
+            elements.shareTags.value = recipe.tags ? recipe.tags.join(', ') : '';
+            elements.shareRecipeForm.dataset.editingId = recipe.id;
+            
+            elements.shareModalTitle.textContent = 'Edit Recipe';
+            elements.shareSubmitBtn.textContent = 'Save Changes';
+            openModal('shareRecipeModal');
+        });
+        
+        // Delete button
+        card.querySelector('.delete-recipe-btn')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            selectedRecipe = recipe;
+            
+            if (confirm('Are you sure you want to delete this recipe?')) {
+                handleDeleteRecipe();
+            }
+        });
+    }
     
     return card;
 }
@@ -584,10 +935,15 @@ function openRecipeModal(recipe) {
     updateSaveButtonState(recipe.id);
 
     // Show/hide edit/delete buttons based on authorship
-    if (currentUser && currentUser.uid === recipe.authorId) {
+    const isUserRecipe = currentUser && recipe.authorId === currentUser.uid;
+    console.log("Checking recipe ownership - Current user:", currentUser?.uid, "Recipe author:", recipe.authorId, "Is owner:", isUserRecipe);
+    
+    if (isUserRecipe) {
+        // User owns this recipe
         elements.editRecipeBtn.style.display = 'flex';
         elements.deleteRecipeBtn.style.display = 'flex';
     } else {
+        // Not the owner of the recipe
         elements.editRecipeBtn.style.display = 'none';
         elements.deleteRecipeBtn.style.display = 'none';
     }
@@ -632,7 +988,10 @@ function addIngredientInput() {
     removeBtn.addEventListener('click', async () => {
         await fadeOut(inputGroup);
         inputGroup.remove();
+        updateRemoveButtons();
     });
+    
+    updateRemoveButtons();
 }
 
 function handleIngredientInputClick(e) {
@@ -671,7 +1030,7 @@ async function generateRecipeFromIngredients() {
         generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
     }
     
-    showLoading(true);
+    showLoading(true, 'Generating your recipe...');
     disableGenerateButton(true);
     
     try {
@@ -736,7 +1095,7 @@ function disableGenerateButton(disabled) {
 async function healthifyCurrentRecipe() {
     if (!selectedRecipe) return;
     
-    showLoading(true);
+    showLoading(true, 'Creating a healthier version...');
     
     try {
         const healthyRecipe = await callGeminiAPI(createHealthifyPrompt(selectedRecipe));
@@ -757,14 +1116,27 @@ async function healthifyCurrentRecipe() {
     }
 }
 
+// Meal plan functions
 async function generateMealPlan() {
-    showLoading(true);
+    showLoading(true, 'Generating your meal plan...');
     
     try {
-        const mealPlan = await callGeminiAPI(createMealPlanPrompt());
-        const parsedMealPlan = parseMealPlanResponse(mealPlan);
+        const mealPlanPrompt = createMealPlanPrompt();
+        console.log("Sending meal plan prompt to Gemini API:", mealPlanPrompt);
         
-        renderMealPlan(parsedMealPlan);
+        const mealPlan = await callGeminiAPI(mealPlanPrompt);
+        console.log("Received meal plan response:", mealPlan);
+        
+        const parsedMealPlan = parseMealPlanResponse(mealPlan);
+        console.log("Parsed meal plan:", parsedMealPlan);
+        
+        // Save the current meal plan to local storage for persistence
+        localStorage.setItem('cookiverse-current-mealplan', JSON.stringify({
+            plan: parsedMealPlan,
+            timestamp: new Date().toISOString()
+        }));
+        
+        renderMealPlan(parsedMealPlan, false);
         openModal('mealPlanModal');
         
     } catch (error) {
@@ -775,206 +1147,195 @@ async function generateMealPlan() {
     }
 }
 
-// Gemini API calls
-async function callGeminiAPI(prompt) {
-    try {
-        const response = await fetch(GEMINI_API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [{
-                        text: prompt
-                    }]
-                }]
-            })
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-            throw new Error('Invalid response format from Gemini API');
-        }
-
-        return data.candidates[0].content.parts[0].text;
-    } catch (error) {
-        console.error('Error calling Gemini API:', error);
-        throw new Error('Failed to generate recipe. Please try again.');
+// Save a meal plan with a name
+function saveMealPlan(mealPlan, name) {
+    if (!currentUser) {
+        showError("Please sign in to save meal plans");
+        return false;
     }
-}
-
-// Prompt creation functions
-function createRecipePrompt(ingredients) {
-    const ingredientList = ingredients.join(', ');
-    return `Create a detailed recipe using these ingredients: ${ingredientList}.
-
-Please format your response EXACTLY as follows (including the exact headers and dashes):
-TITLE: [Recipe name]
-COOK_TIME: [Cooking time in minutes]
-TAGS: [3-5 comma-separated tags like healthy, quick, vegetarian]
-INGREDIENTS:
-- [First ingredient with exact quantity]
-- [Second ingredient with exact quantity]
-- [Continue for all ingredients]
-INSTRUCTIONS:
-1. [First step with specific details]
-2. [Second step with specific details]
-3. [Continue with all steps]
-
-Requirements:
-1. Use EXACT quantities for ingredients (e.g., "2 cups", "300g", "3 tablespoons")
-2. Include temperature and timing in instructions where needed
-3. Make the recipe practical and achievable
-4. If only one ingredient is provided, suggest complementary ingredients
-5. Include all provided ingredients in the recipe`;
-}
-
-function createHealthifyPrompt(recipe) {
-    return `Please rewrite this recipe to make it healthier (lower calorie, less fat, more nutritious):
-
-Original Recipe:
-Title: ${recipe.title}
-Ingredients: ${recipe.ingredients ? recipe.ingredients.join(', ') : 'Not specified'}
-Instructions: ${recipe.instructions ? recipe.instructions.join(' ') : 'Not specified'}
-
-Please format your response as follows:
-TITLE: [Healthier recipe name]
-COOK_TIME: [Cooking time]
-TAGS: [Comma-separated tags including 'healthy']
-INGREDIENTS:
-- [List each healthier ingredient with quantity]
-INSTRUCTIONS:
-1. [Step by step instructions for healthier version]
-
-Focus on reducing calories, saturated fats, and adding more vegetables, lean proteins, and whole grains.`;
-}
-
-function createMealPlanPrompt() {
-    return `Create a 3-day meal plan (3 meals per day).
-
-Please format your response as follows:
-DAY_1:
-BREAKFAST: [Meal name] - [Brief description]
-LUNCH: [Meal name] - [Brief description]  
-DINNER: [Meal name] - [Brief description]
-
-DAY_2:
-BREAKFAST: [Meal name] - [Brief description]
-LUNCH: [Meal name] - [Brief description]
-DINNER: [Meal name] - [Brief description]
-
-DAY_3:
-BREAKFAST: [Meal name] - [Brief description]
-LUNCH: [Meal name] - [Brief description]
-DINNER: [Meal name] - [Brief description]
-
-Make the meals balanced, practical, and use common ingredients.`;
-}
-
-// Response parsing functions
-function parseRecipeResponse(response) {
+    
     try {
-        const lines = response.split('\n');
-        const recipe = {
-            title: 'Generated Recipe',
-            cookTime: 'Not specified',
-            tags: [],
-            ingredients: [],
-            instructions: [],
-            id: `generated_${Date.now()}`
+        // Load existing saved meal plans
+        loadMealPlansFromStorage();
+        
+        const newMealPlan = {
+            id: `mealplan_${Date.now()}`,
+            name: name || `Meal Plan ${savedMealPlans.length + 1}`,
+            plan: mealPlan,
+            timestamp: new Date().toISOString(),
+            userId: currentUser.uid
         };
         
-        let currentSection = '';
+        // Add new meal plan
+        savedMealPlans.push(newMealPlan);
         
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line) continue;
-            
-            if (line.startsWith('TITLE:')) {
-                const title = line.replace('TITLE:', '').trim();
-                recipe.title = title || 'Generated Recipe';
-            } else if (line.startsWith('COOK_TIME:')) {
-                recipe.cookTime = line.replace('COOK_TIME:', '').trim() || 'Not specified';
-            } else if (line.startsWith('TAGS:')) {
-                const tags = line.replace('TAGS:', '').split(',')
-                    .map(tag => tag.trim())
-                    .filter(tag => tag);
-                recipe.tags = tags.length > 0 ? tags : ['Generated'];
-            } else if (line === 'INGREDIENTS:') {
-                currentSection = 'ingredients';
-            } else if (line === 'INSTRUCTIONS:') {
-                currentSection = 'instructions';
-            } else if (currentSection === 'ingredients' && line.startsWith('-')) {
-                const ingredient = line.replace('-', '').trim();
-                if (ingredient) {
-                    recipe.ingredients.push(ingredient);
-                }
-            } else if (currentSection === 'instructions' && /^\d+\./.test(line)) {
-                const instruction = line.replace(/^\d+\.\s*/, '').trim();
-                if (instruction) {
-                    recipe.instructions.push(instruction);
-                }
-            }
-        }
+        // Save to local storage
+        saveMealPlansToStorage();
         
-        // Validate the parsed recipe
-        if (recipe.ingredients.length === 0) {
-            throw new Error('No ingredients found in the generated recipe');
-        }
-        
-        if (recipe.instructions.length === 0) {
-            throw new Error('No instructions found in the generated recipe');
-        }
-        
-        return recipe;
+        showSuccess("Meal plan saved successfully!");
+        return true;
     } catch (error) {
-        console.error('Error parsing recipe:', error);
-        throw new Error('Failed to parse the generated recipe. Please try again.');
+        console.error("Error saving meal plan:", error);
+        showError("Failed to save meal plan. Please try again.");
+        return false;
     }
 }
 
-function parseMealPlanResponse(response) {
-    const lines = response.split('\n');
-    const mealPlan = {
-        day1: { breakfast: '', lunch: '', dinner: '' },
-        day2: { breakfast: '', lunch: '', dinner: '' },
-        day3: { breakfast: '', lunch: '', dinner: '' }
-    };
-    
-    let currentDay = '';
-    
-    lines.forEach(line => {
-        line = line.trim();
-        if (!line) return;
-        
-        if (line.includes('DAY_1') || line.includes('Day 1')) {
-            currentDay = 'day1';
-        } else if (line.includes('DAY_2') || line.includes('Day 2')) {
-            currentDay = 'day2';
-        } else if (line.includes('DAY_3') || line.includes('Day 3')) {
-            currentDay = 'day3';
-        } else if (line.startsWith('BREAKFAST:') && currentDay) {
-            mealPlan[currentDay].breakfast = line.replace('BREAKFAST:', '').trim();
-        } else if (line.startsWith('LUNCH:') && currentDay) {
-            mealPlan[currentDay].lunch = line.replace('LUNCH:', '').trim();
-        } else if (line.startsWith('DINNER:') && currentDay) {
-            mealPlan[currentDay].dinner = line.replace('DINNER:', '').trim();
+// Load saved meal plans from storage
+function loadMealPlansFromStorage() {
+    try {
+        const storedPlans = localStorage.getItem('cookiverse-mealplans');
+        if (storedPlans) {
+            savedMealPlans = JSON.parse(storedPlans).filter(plan => 
+                plan.userId === currentUser?.uid
+            );
         }
-    });
+    } catch (error) {
+        console.error("Error loading saved meal plans:", error);
+        savedMealPlans = [];
+    }
+}
+
+// Save meal plans to local storage
+function saveMealPlansToStorage() {
+    try {
+        localStorage.setItem('cookiverse-mealplans', JSON.stringify(savedMealPlans));
+    } catch (error) {
+        console.error("Error saving meal plans to storage:", error);
+    }
+}
+
+// Load saved meal plans
+async function loadSavedMealPlans() {
+    showLoading(true, 'Loading your saved meal plans...');
     
-    return mealPlan;
+    try {
+        loadMealPlansFromStorage();
+        
+        if (savedMealPlans.length === 0) {
+            elements.recipeGrid.innerHTML = `
+                <div class="empty-state" style="display: block;">
+                    <i class="fas fa-calendar-alt"></i>
+                    <h3>No saved meal plans</h3>
+                    <p>Generate a meal plan and save it for future reference!</p>
+                    <button class="action-btn" id="generateNewMealPlanBtn">
+                        <i class="fas fa-calendar-plus"></i>
+                        Generate New Meal Plan
+                    </button>
+                </div>
+            `;
+            
+            // Add event listener to the new button
+            document.getElementById('generateNewMealPlanBtn')?.addEventListener('click', generateMealPlan);
+            
+        } else {
+            elements.recipeGrid.innerHTML = `
+                <div class="saved-plans-header">
+                    <h3><i class="fas fa-calendar-check"></i> Your Saved Meal Plans</h3>
+                    <button class="meal-plan-action-btn" id="generateNewMealPlanBtn">
+                        <i class="fas fa-calendar-plus"></i> Create New
+                    </button>
+                </div>
+                <div class="saved-plans-container">
+                    ${savedMealPlans.map((savedPlan, index) => `
+                        <div class="saved-plan-card" data-plan-id="${savedPlan.id}">
+                            <div class="saved-plan-header">
+                                <h3>${savedPlan.name}</h3>
+                                <span class="saved-date">Saved on ${new Date(savedPlan.timestamp).toLocaleDateString()}</span>
+                            </div>
+                            <div class="saved-plan-preview">
+                                <div class="preview-day">
+                                    <h4>Day 1</h4>
+                                    <p>${getMealTitle(savedPlan.plan.day1.breakfast)}</p>
+                                    <p>${getMealTitle(savedPlan.plan.day1.lunch)}</p>
+                                    <p>${getMealTitle(savedPlan.plan.day1.dinner)}</p>
+                                </div>
+                            </div>
+                            <div class="saved-plan-actions">
+                                <button class="view-plan-btn" data-index="${index}">
+                                    <i class="fas fa-eye"></i> View
+                                </button>
+                                <button class="delete-plan-btn" data-index="${index}">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            // Add event listeners for saved plan actions
+            document.getElementById('generateNewMealPlanBtn')?.addEventListener('click', generateMealPlan);
+            document.querySelectorAll('.view-plan-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const index = parseInt(e.target.closest('.view-plan-btn').dataset.index);
+                    renderMealPlan(savedMealPlans[index].plan, true, savedMealPlans[index].name);
+                    openModal('mealPlanModal');
+                });
+            });
+            
+            document.querySelectorAll('.delete-plan-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const index = parseInt(e.target.closest('.delete-plan-btn').dataset.index);
+                    if (confirm(`Are you sure you want to delete "${savedMealPlans[index].name}"?`)) {
+                        savedMealPlans.splice(index, 1);
+                        saveMealPlansToStorage();
+                        loadSavedMealPlans();
+                    }
+                });
+            });
+        }
+    } catch (error) {
+        console.error('Error loading saved meal plans:', error);
+        showError('Failed to load saved meal plans');
+    } finally {
+        elements.emptyState.style.display = 'none';
+        showLoading(false);
+    }
 }
 
 // Meal plan rendering
-function renderMealPlan(mealPlan) {
-    elements.mealPlanGrid.innerHTML = `
+function renderMealPlan(mealPlan, isSavedPlan = false, savedPlanName = '') {
+    // Get saved date if available
+    const currentPlan = localStorage.getItem('cookiverse-current-mealplan');
+    const savedDate = currentPlan ? new Date(JSON.parse(currentPlan).timestamp) : new Date();
+    const formattedDate = savedDate.toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+    });
+    
+    // Prepare save UI
+    let savePlanUI = '';
+    if (!isSavedPlan) {
+        savePlanUI = `
+            <div class="save-plan-container">
+                <input type="text" id="mealPlanNameInput" placeholder="Enter a name for this meal plan">
+                <button class="meal-plan-action-btn" id="saveMealPlanBtn">
+                    <i class="fas fa-save"></i> Save Plan
+                </button>
+            </div>
+        `;
+    }
+    
+    const headerHtml = `
+        <div class="meal-plan-header">
+            <div class="meal-plan-info">
+                <h3>${isSavedPlan ? savedPlanName : 'Your 3-Day Meal Plan'}</h3>
+                <p class="meal-plan-date">${isSavedPlan ? 'Saved plan' : `Generated on ${formattedDate}`}</p>
+            </div>
+            <div class="meal-plan-header-actions">
+                ${savePlanUI}
+                <button class="meal-plan-action-btn" id="regenerateMealPlanBtn" ${isSavedPlan ? 'style="display:none;"' : ''}>
+                    <i class="fas fa-sync-alt"></i> Regenerate
+                </button>
+            </div>
+        </div>
+    `;
+    
+    elements.mealPlanGrid.innerHTML = headerHtml + `
         <div class="day-plan">
-            <h3>Day 1</h3>
+            <h3><i class="fas fa-sun"></i> Day 1</h3>
             <div class="meal">
                 <h4>🌅 Breakfast</h4>
                 <div class="meal-title">${getMealTitle(mealPlan.day1.breakfast)}</div>
@@ -992,7 +1353,7 @@ function renderMealPlan(mealPlan) {
             </div>
         </div>
         <div class="day-plan">
-            <h3>Day 2</h3>
+            <h3><i class="fas fa-cloud-sun"></i> Day 2</h3>
             <div class="meal">
                 <h4>🌅 Breakfast</h4>
                 <div class="meal-title">${getMealTitle(mealPlan.day2.breakfast)}</div>
@@ -1010,7 +1371,7 @@ function renderMealPlan(mealPlan) {
             </div>
         </div>
         <div class="day-plan">
-            <h3>Day 3</h3>
+            <h3><i class="fas fa-cloud"></i> Day 3</h3>
             <div class="meal">
                 <h4>🌅 Breakfast</h4>
                 <div class="meal-title">${getMealTitle(mealPlan.day3.breakfast)}</div>
@@ -1028,6 +1389,25 @@ function renderMealPlan(mealPlan) {
             </div>
         </div>
     `;
+    
+    // Add event listeners for buttons
+    document.getElementById('regenerateMealPlanBtn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        closeModal('mealPlanModal');
+        setTimeout(() => {
+            generateMealPlan();
+        }, 300);
+    });
+    
+    // Add save functionality
+    document.getElementById('saveMealPlanBtn')?.addEventListener('click', () => {
+        const planName = document.getElementById('mealPlanNameInput').value.trim() || `Meal Plan ${savedMealPlans.length + 1}`;
+        if (saveMealPlan(mealPlan, planName)) {
+            // Show success and disable save button
+            document.getElementById('saveMealPlanBtn').disabled = true;
+            document.getElementById('saveMealPlanBtn').innerHTML = '<i class="fas fa-check"></i> Saved';
+        }
+    });
 }
 
 function getMealTitle(mealText) {
@@ -1105,23 +1485,35 @@ async function handleShareRecipe(e) {
     }
     
     try {
-        showLoading(true);
-        if (isEditing && selectedRecipe) {
-            await updateRecipe(selectedRecipe.id, recipeData);
+        const isEdit = isEditing && elements.shareRecipeForm.dataset.editingId;
+        showLoading(true, isEdit ? 'Updating recipe...' : 'Sharing recipe...');
+        
+        // Check if we're editing an existing recipe
+        const recipeId = elements.shareRecipeForm.dataset.editingId;
+        
+        if (isEditing && recipeId) {
+            await updateRecipe(recipeId, recipeData);
             showSuccess('Recipe updated successfully!');
+            
+            // Update the selected recipe if it's still open
+            if (selectedRecipe && selectedRecipe.id === recipeId) {
+                selectedRecipe = { ...selectedRecipe, ...recipeData };
+            }
         } else {
             await saveRecipe(recipeData);
             showSuccess('Recipe shared successfully!');
         }
+        
         closeModal('shareModal');
         elements.shareRecipeForm.reset();
+        delete elements.shareRecipeForm.dataset.editingId;
         
-        // Reload the current view to show the new recipe
+        // Reload the current view to show the new or updated recipe
         await switchView(currentView);
         
     } catch (error) {
         console.error('Error saving recipe:', error);
-        showError('Failed to save recipe. Please try again.');
+        showError(error.message || 'Failed to save recipe. Please try again.');
     } finally {
         showLoading(false);
         isEditing = false;
@@ -1141,6 +1533,9 @@ function handleEditRecipe() {
     elements.shareTags.value = (selectedRecipe.tags || []).join(', ');
 
     openModal('shareModal');
+    
+    // Make sure the form submit handler knows we're in edit mode
+    elements.shareRecipeForm.dataset.editingId = selectedRecipe.id;
 }
 
 async function handleDeleteRecipe() {
@@ -1150,14 +1545,14 @@ async function handleDeleteRecipe() {
 
     if (confirmDelete) {
         try {
-            showLoading(true);
+            showLoading(true, 'Deleting recipe...');
             await deleteRecipe(selectedRecipe.id);
             showSuccess('Recipe deleted successfully!');
             closeModal('recipeModal');
             await switchView(currentView);
         } catch (error) {
             console.error('Error deleting recipe:', error);
-            showError('Failed to delete recipe. Please try again.');
+            showError(error.message || 'Failed to delete recipe. Please try again.');
         } finally {
             showLoading(false);
         }
@@ -1207,8 +1602,13 @@ function closeAllModals() {
 }
 
 // Utility functions
-function showLoading(show) {
+function showLoading(show, message = 'Processing your request...') {
     elements.loadingSpinner.style.display = show ? 'flex' : 'none';
+    
+    // Update loading message if element exists
+    if (elements.loadingMessage) {
+        elements.loadingMessage.textContent = message;
+    }
 }
 
 function showEmptyState() {
@@ -1276,6 +1676,32 @@ function formatDate(timestamp) {
     return date.toLocaleDateString();
 }
 
+// Start automatic feed refresh
+function startFeedRefresh() {
+    // Clear any existing interval first
+    stopFeedRefresh();
+    
+    // Set up new refresh interval (2 seconds)
+    feedRefreshInterval = setInterval(async () => {
+        // Only refresh if we're in the feed view
+        if (currentView === 'feed' && currentUser) {
+            console.log('Auto-refreshing recipe feed...');
+            await loadRecipeFeed(true); // true = silent refresh (no loading spinner)
+        }
+    }, 2000);
+    
+    console.log('Feed auto-refresh started');
+}
+
+// Stop automatic feed refresh
+function stopFeedRefresh() {
+    if (feedRefreshInterval) {
+        clearInterval(feedRefreshInterval);
+        feedRefreshInterval = null;
+        console.log('Feed auto-refresh stopped');
+    }
+}
+
 // Export functions for global access if needed
 window.CookiVerse = {
     toggleBookmark,
@@ -1283,5 +1709,207 @@ window.CookiVerse = {
     generateRecipeFromIngredients,
     generateMealPlan
 };
+
+// Gemini API functions
+async function callGeminiAPI(prompt) {
+    try {
+        const response = await fetch(GEMINI_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                contents: [
+                    {
+                        parts: [
+                            {
+                                text: prompt
+                            }
+                        ]
+                    }
+                ]
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`API request failed with status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || 
+            !data.candidates[0].content.parts || !data.candidates[0].content.parts[0] || 
+            !data.candidates[0].content.parts[0].text) {
+            throw new Error('Invalid response format from Gemini API');
+        }
+        
+        return data.candidates[0].content.parts[0].text;
+    } catch (error) {
+        console.error('Error calling Gemini API:', error);
+        throw new Error('Failed to generate content. Please try again later.');
+    }
+}
+
+function createMealPlanPrompt() {
+    return `Create a 3-day meal plan with breakfast, lunch, and dinner for each day. 
+    Format your response exactly like this:
+
+    DAY_1:
+    BREAKFAST: [Meal Name] - [Brief description]
+    LUNCH: [Meal Name] - [Brief description]
+    DINNER: [Meal Name] - [Brief description]
+
+    DAY_2:
+    BREAKFAST: [Meal Name] - [Brief description]
+    LUNCH: [Meal Name] - [Brief description]
+    DINNER: [Meal Name] - [Brief description]
+
+    DAY_3:
+    BREAKFAST: [Meal Name] - [Brief description]
+    LUNCH: [Meal Name] - [Brief description]
+    DINNER: [Meal Name] - [Brief description]
+
+    Make sure each meal is simple and uses common ingredients. Include a variety of proteins, vegetables, and grains.
+    Keep descriptions brief but informative.`;
+}
+
+function parseMealPlanResponse(response) {
+    try {
+        const days = {
+            day1: { breakfast: '', lunch: '', dinner: '' },
+            day2: { breakfast: '', lunch: '', dinner: '' },
+            day3: { breakfast: '', lunch: '', dinner: '' }
+        };
+        
+        // Split by days
+        const dayBlocks = response.split(/DAY_\d+:/g).filter(block => block.trim());
+        
+        // Process each day (up to 3 days)
+        for (let i = 0; i < Math.min(3, dayBlocks.length); i++) {
+            const dayBlock = dayBlocks[i];
+            const dayKey = `day${i + 1}`;
+            
+            // Extract meals
+            const breakfastMatch = dayBlock.match(/BREAKFAST:\s*(.*?)(?=LUNCH:|$)/s);
+            const lunchMatch = dayBlock.match(/LUNCH:\s*(.*?)(?=DINNER:|$)/s);
+            const dinnerMatch = dayBlock.match(/DINNER:\s*(.*?)(?=$)/s);
+            
+            if (breakfastMatch) days[dayKey].breakfast = breakfastMatch[1].trim();
+            if (lunchMatch) days[dayKey].lunch = lunchMatch[1].trim();
+            if (dinnerMatch) days[dayKey].dinner = dinnerMatch[1].trim();
+        }
+        
+        return days;
+    } catch (error) {
+        console.error('Error parsing meal plan response:', error);
+        throw new Error('Failed to parse meal plan. Please try again.');
+    }
+}
+
+function createRecipePrompt(ingredients) {
+    return `Create a recipe using some or all of these ingredients: ${ingredients.join(', ')}. 
+    Format your response exactly like this:
+
+    TITLE: [Recipe Title]
+    COOK_TIME: [Cooking Time]
+    TAGS: [comma-separated tags like healthy, quick, vegetarian, etc]
+    
+    INGREDIENTS:
+    - [Ingredient 1 with quantity]
+    - [Ingredient 2 with quantity]
+    - [etc.]
+    
+    INSTRUCTIONS:
+    1. [Step 1]
+    2. [Step 2]
+    3. [etc.]
+    
+    Be creative but practical. Make sure the recipe is delicious and achievable for a home cook.`;
+}
+
+function parseRecipeResponse(response) {
+    try {
+        const recipe = {
+            id: `recipe_${Date.now()}`,
+            title: 'Generated Recipe',
+            cookTime: '',
+            ingredients: [],
+            instructions: [],
+            tags: [],
+            createdAt: new Date(),
+            isGenerated: true
+        };
+        
+        // Extract title
+        const titleMatch = response.match(/TITLE:\s*(.*?)(?=\n|$)/);
+        if (titleMatch) recipe.title = titleMatch[1].trim();
+        
+        // Extract cook time
+        const cookTimeMatch = response.match(/COOK_TIME:\s*(.*?)(?=\n|$)/);
+        if (cookTimeMatch) recipe.cookTime = cookTimeMatch[1].trim();
+        
+        // Extract tags
+        const tagsMatch = response.match(/TAGS:\s*(.*?)(?=\n|$)/);
+        if (tagsMatch) {
+            recipe.tags = tagsMatch[1].split(',').map(tag => tag.trim()).filter(tag => tag);
+        }
+        
+        // Extract ingredients
+        const ingredientsMatch = response.match(/INGREDIENTS:([\s\S]*?)(?=INSTRUCTIONS:|$)/);
+        if (ingredientsMatch) {
+            recipe.ingredients = ingredientsMatch[1]
+                .split('\n')
+                .map(line => line.trim())
+                .filter(line => line.startsWith('-'))
+                .map(line => line.substring(1).trim());
+        }
+        
+        // Extract instructions
+        const instructionsMatch = response.match(/INSTRUCTIONS:([\s\S]*?)(?=$)/);
+        if (instructionsMatch) {
+            recipe.instructions = instructionsMatch[1]
+                .split('\n')
+                .map(line => line.trim())
+                .filter(line => /^\d+\./.test(line))
+                .map(line => line.replace(/^\d+\.\s*/, '').trim());
+        }
+        
+        return recipe;
+    } catch (error) {
+        console.error('Error parsing recipe response:', error);
+        throw new Error('Failed to parse recipe. Please try again.');
+    }
+}
+
+function createHealthifyPrompt(recipe) {
+    return `Create a healthier version of this recipe:
+    
+    Original Recipe: ${recipe.title}
+    
+    Original Ingredients:
+    ${recipe.ingredients.map(ing => `- ${ing}`).join('\n')}
+    
+    Original Instructions:
+    ${recipe.instructions.map((step, i) => `${i+1}. ${step}`).join('\n')}
+    
+    Please create a healthier version with lower calories, less fat, and/or more nutrients.
+    Format your response exactly like this:
+    
+    TITLE: [Healthier Recipe Title]
+    COOK_TIME: [Cooking Time]
+    TAGS: [comma-separated tags like healthy, low-fat, etc]
+    
+    INGREDIENTS:
+    - [Ingredient 1 with quantity]
+    - [Ingredient 2 with quantity]
+    - [etc.]
+    
+    INSTRUCTIONS:
+    1. [Step 1]
+    2. [Step 2]
+    3. [etc.]
+    
+    Explain briefly at the end what makes this version healthier.`;
+}
 
 console.log('CookiVerse main.js loaded successfully');
